@@ -1,0 +1,124 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    function isSignedIn() { return request.auth != null; }
+    function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
+    function isAdmin() { return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)); }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function isVerified() { return request.auth.token.email_verified == true; }
+
+    // --- Entity Validations ---
+    function isValidProfile(p) {
+      return p.name is string && p.name.size() > 0 && p.name.size() <= 100 &&
+             p.role in ['student', 'faculty'] &&
+             p.created_at == request.time;
+    }
+
+    function isValidStall(s) {
+      return s.name is string && s.name.size() > 0 && s.name.size() <= 100 &&
+             s.owner_id is string && s.owner_id == request.auth.uid &&
+             s.created_at == request.time;
+    }
+
+    function isValidMenuItem(m) {
+      return m.name is string && m.name.size() > 0 && m.name.size() <= 100 &&
+             m.price is number && m.price >= 0 &&
+             m.stall_id is string &&
+             m.created_at == request.time;
+    }
+
+    function isValidOrder(o) {
+      return o.user_id is string && o.user_id == request.auth.uid &&
+             o.stall_id is string &&
+             o.total_amount is number && o.total_amount >= 0 &&
+             o.status in ['PENDING', 'ACCEPTED', 'PREPARING', 'READY', 'COMPLETED', 'CANCELLED'] &&
+             o.created_at == request.time &&
+             o.updated_at == request.time;
+    }
+
+    function isValidOrderItem(i) {
+      return i.item_name is string && i.item_name.size() > 0 &&
+             i.quantity is int && i.quantity > 0 &&
+             i.unit_price is number && i.unit_price >= 0;
+    }
+
+    function isValidEvaluation(e) {
+      return e.user_id is string && e.user_id == request.auth.uid &&
+             e.overall_rating is number && e.overall_rating >= 1 && e.overall_rating <= 5 &&
+             e.created_at == request.time;
+    }
+
+    // --- Collection Rules ---
+
+    // PROFILES
+    match /profiles/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isOwner(userId) && isValidProfile(incoming());
+      allow update: if isOwner(userId) && 
+                      incoming().role == existing().role && // Role immutable
+                      incoming().created_at == existing().created_at &&
+                      isValidProfile(incoming());
+    }
+
+    // STALLS
+    match /stalls/{stallId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidStall(incoming());
+      allow update: if isSignedIn() && (
+                      (existing().owner_id == request.auth.uid && isValidStall(incoming())) ||
+                      // Allow customers to trigger rating updates (simulated here, but better via functions)
+                      (incoming().diff(existing()).affectedKeys().hasOnly(['rating', 'total_ratings']))
+                    );
+      allow delete: if isSignedIn() && existing().owner_id == request.auth.uid;
+
+      // MENU ITEMS
+      match /menu_items/{itemId} {
+        allow read: if isSignedIn();
+        allow write: if isSignedIn() && get(/databases/$(database)/documents/stalls/$(stallId)).data.owner_id == request.auth.uid &&
+                       (request.method == 'delete' || isValidMenuItem(incoming()));
+      }
+    }
+
+    // ORDERS
+    match /orders/{orderId} {
+      function canReadOrder() {
+        return isOwner(resource.data.user_id) || 
+               get(/databases/$(database)/documents/stalls/$(resource.data.stall_id)).data.owner_id == request.auth.uid;
+      }
+
+      allow read: if isSignedIn() && canReadOrder();
+      allow create: if isSignedIn() && isValidOrder(incoming());
+      allow update: if isSignedIn() && (
+                      // Customer can cancel a PENDING order
+                      (isOwner(existing().user_id) && existing().status == 'PENDING' && incoming().status == 'CANCELLED' && 
+                       incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updated_at'])) ||
+                      // Vendor can update status
+                      (get(/databases/$(database)/documents/stalls/$(existing().stall_id)).data.owner_id == request.auth.uid &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updated_at']))
+                    );
+
+      // ORDER ITEMS
+      match /items/{itemId} {
+        allow read: if isSignedIn() && (
+                      isOwner(get(/databases/$(database)/documents/orders/$(orderId)).data.user_id) ||
+                      get(/databases/$(database)/documents/stalls/$(get(/databases/$(database)/documents/orders/$(orderId)).data.stall_id)).data.owner_id == request.auth.uid
+                    );
+        allow create: if isSignedIn() && isOwner(get(/databases/$(database)/documents/orders/$(orderId)).data.user_id) && isValidOrderItem(incoming());
+      }
+    }
+
+    // EVALUATIONS
+    match /evaluations/{evaluationId} {
+      allow read: if isSignedIn() && (isOwner(resource.data.user_id) || isAdmin());
+      allow create: if isSignedIn() && isValidEvaluation(incoming());
+    }
+  }
+}
