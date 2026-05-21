@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { ArrowLeft, Mail, Lock, Eye, EyeOff } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
 interface LoginProps {
   onBack: () => void;
@@ -28,6 +28,8 @@ const Login: React.FC<LoginProps> = ({ onBack, onSignup }) => {
       if (authError) {
         if (authError.message.includes('Email not confirmed')) {
           setError('Email not confirmed. Please check your inbox for the confirmation link.');
+        } else if (authError.message.toLowerCase().includes('failed to fetch') || authError.message.toLowerCase().includes('network') || !isSupabaseConfigured) {
+          setError('Connection Error: Unable to reach your database. Please make sure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are set correctly as environment variables in your Vercel Project Settings, then rebuild/re-deploy.');
         } else if (authError.status === 400 || authError.message.includes('Invalid login credentials')) {
           setError('Invalid email or password. Please try again.');
         } else {
@@ -42,7 +44,11 @@ const Login: React.FC<LoginProps> = ({ onBack, onSignup }) => {
       console.log("Login successful, waiting for session update...");
     } catch (err: any) {
       console.error("Login exception:", err);
-      setError('An unexpected error occurred. Please try again.');
+      let msg = 'An unexpected error occurred. Please try again.';
+      if (err?.message?.toLowerCase().includes('failed to fetch') || err?.toString()?.toLowerCase().includes('failed to fetch') || !isSupabaseConfigured) {
+        msg = 'Connection Error: Unable to reach your database. Please make sure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are set correctly as environment variables in your Vercel Project Settings, then rebuild/re-deploy.';
+      }
+      setError(msg);
       setLoading(false);
     }
   };
@@ -77,6 +83,27 @@ const Login: React.FC<LoginProps> = ({ onBack, onSignup }) => {
           <div className="h-[2px] w-8 bg-brand-orange" />
         </div>
       </motion.div>
+
+      {!isSupabaseConfigured && (
+        <div className="mb-8 p-5 bg-amber-500/10 border border-amber-500/20 rounded-2xl text-left z-10">
+          <h4 className="text-amber-500 font-mono font-bold text-xs uppercase tracking-wider mb-2 flex items-center gap-1.5">
+            ⚠️ Supabase Keys Missing on Vercel
+          </h4>
+          <p className="text-white/80 text-xs leading-relaxed">
+            To sign in or register on your deployed site, please configure your Supabase variables:
+          </p>
+          <ol className="list-decimal pl-5 mt-3 space-y-1.5 text-white/70 font-mono text-[10px] uppercase tracking-wider">
+            <li>Go to your <strong className="text-amber-500">Vercel Dashboard</strong></li>
+            <li>Open <strong className="text-amber-500">Project Settings &rarr; Environment Variables</strong></li>
+            <li>Add <strong className="text-white font-extrabold">VITE_SUPABASE_URL</strong></li>
+            <li>Add <strong className="text-white font-extrabold">VITE_SUPABASE_ANON_KEY</strong></li>
+            <li>Redeploy the project on Vercel</li>
+          </ol>
+          <div className="mt-3 text-[10px] text-white/40 leading-relaxed italic">
+            Note: Email confirmation is enabled in Supabase by default. If your users aren't signing in instantly, disable "Confirm email" under <strong className="text-white">Authentication &rarr; Providers &rarr; Email</strong> in your Supabase Dashboard.
+          </div>
+        </div>
+      )}
 
       <form onSubmit={handleLogin} className="space-y-6 z-10">
         <div className="space-y-1.5">

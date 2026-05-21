@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ArrowLeft, User, Mail, Lock, GraduationCap, Store, Heart, ShieldAlert, Wallet } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { Profile, UserRole } from '../types';
 import { useAuth } from '../context/AuthContext';
 
@@ -75,7 +75,11 @@ const Signup: React.FC<SignupProps> = ({ onBack, onLogin }) => {
         setLoading(false);
       }
     } catch (err: any) {
-      setError(err.message || 'Failed to create account');
+      let msg = err.message || 'Failed to create account';
+      if (msg.toLowerCase().includes('failed to fetch') || msg.toLowerCase().includes('network') || !isSupabaseConfigured) {
+        msg = 'Connection Error: Unable to reach your database. Please make sure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are set correctly as environment variables in your Vercel Project Settings, then rebuild/re-deploy.';
+      }
+      setError(msg);
       setLoading(false);
     }
   };
@@ -124,6 +128,27 @@ const Signup: React.FC<SignupProps> = ({ onBack, onLogin }) => {
                   <div className="h-[2px] w-8 bg-brand-orange" />
                 </div>
             </div>
+
+            {!isSupabaseConfigured && (
+              <div className="mb-8 p-5 bg-amber-500/10 border border-amber-500/20 rounded-2xl text-left">
+                <h4 className="text-amber-500 font-mono font-bold text-xs uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                  ⚠️ Supabase Keys Missing on Vercel
+                </h4>
+                <p className="text-white/80 text-xs leading-relaxed">
+                  To register or sign in on your deployed site, please configure your Supabase variables:
+                </p>
+                <ol className="list-decimal pl-5 mt-3 space-y-1.5 text-white/70 font-mono text-[10px] uppercase tracking-wider">
+                  <li>Go to your <strong className="text-amber-500">Vercel Dashboard</strong></li>
+                  <li>Open <strong className="text-amber-500">Project Settings &rarr; Environment Variables</strong></li>
+                  <li>Add <strong className="text-white font-extrabold">VITE_SUPABASE_URL</strong></li>
+                  <li>Add <strong className="text-white font-extrabold">VITE_SUPABASE_ANON_KEY</strong></li>
+                  <li>Redeploy the project on Vercel</li>
+                </ol>
+                <div className="mt-3 text-[10px] text-white/40 leading-relaxed italic">
+                  Note: Email confirmation is enabled in Supabase by default. If your users aren't signing in instantly, disable "Confirm email" under <strong className="text-white">Authentication &rarr; Providers &rarr; Email</strong> in your Supabase Dashboard.
+                </div>
+              </div>
+            )}
 
             <div className="space-y-5">
                <div className="space-y-1.5">

@@ -6,7 +6,9 @@ const supabaseAnonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string) || ''
 // Ensure we have a clean project URL (strip trailing slashes and rest/v1 suffixes)
 const supabaseUrl = rawUrl.trim().replace(/\/rest\/v1\/?$/, '').replace(/\/+$/, '');
 
-if (!supabaseUrl || !supabaseAnonKey) {
+export const isSupabaseConfigured = !!supabaseUrl && !!supabaseAnonKey && !supabaseUrl.includes('placeholder') && !supabaseAnonKey.includes('placeholder');
+
+if (!isSupabaseConfigured) {
   console.warn("Supabase credentials missing. Please check your .env file or Secrets panel.");
 }
 
